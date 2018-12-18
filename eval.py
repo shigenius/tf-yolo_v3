@@ -270,6 +270,14 @@ def main(argv=None):
             data = [[l, get_annotation(l[0], txtname=cfg.GT_INFO_FILE_NAME)] for l in f_]  # data: [[(path_str, label), [frame, center_x, center_y, size_x, size_y]],...]
             data = [l for l in data if l[1] is not None]  # annotationを取得できなかった画像は飛ばす
 
+            def is_cropped_file_Exist(orig_filepath):
+                d, file =  os.path.split(orig_filepath)
+                cropped_d = d+"_cropped"
+                cropped_file = os.path.join(cropped_d, file)
+                return os.path.exists(cropped_file)
+
+            data = [l for l in data if is_cropped_file_Exist(l[0][0])] # 対となるcrop画像がない画像は飛ばす
+
             # log
             f = open(cfg.OUTPUT_LOG_PATH, 'w')
             writer = csv.writer(f, lineterminator='\n')
@@ -366,7 +374,7 @@ def main(argv=None):
                             # calc IoU, mAP
                             # gt: [(path_str, label), [frame, center_x, center_y, size_x, size_y]
                             # print(filtered_boxes)
-
+                            iou = 0.0
                             for key in filtered_boxes.keys():
                                 for pred_box in filtered_boxes[key]:
                                     p_box = copy.deepcopy(pred_box[0])
@@ -395,7 +403,6 @@ def main(argv=None):
 
                 else:#何も検出されなかった時
                     is_detected = False
-                    pred_label = "None"
                     is_label_correct = "None"
                     pred_label = ["None"]
 
