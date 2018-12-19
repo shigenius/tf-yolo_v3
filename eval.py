@@ -278,10 +278,11 @@ def main(argv=None):
 
             data = [l for l in data if is_cropped_file_Exist(l[0][0])] # 対となるcrop画像がない画像は飛ばす
 
+
             # log
             f = open(cfg.OUTPUT_LOG_PATH, 'w')
             writer = csv.writer(f, lineterminator='\n')
-            writer.writerow(['image path', 'IoU', 'Average Precision', 'Recall', 'is RoI detected?', 'is label correct?', 'gt label','pred label', 'detect time', 'recog time'])
+            writer.writerow(['image path', 'movie_name', 'IoU', 'Average Precision', 'Recall', 'is RoI detected?', 'is label correct?', 'gt label','pred label', 'detect time', 'recog time'])
 
             iou_list = [] # 画像毎のiouのリスト
             ap_list = []# 画像毎のaverage precisionのリスト
@@ -426,7 +427,7 @@ def main(argv=None):
                 draw.text(gt_box[:2], 'GT_'+s_labels[gt_label], fill=color)
 
                 img.save(os.path.join(cfg.OUTPUT_IMAGE_DIR, '{0:04d}_'.format(count)+os.path.basename(gt[0][0])))
-                writer.writerow([gt[0][0], average_iou, ap, 'Recall', is_detected, is_label_correct, s_labels[gt_label], pred_label[0], detect_time, recog_time])
+                writer.writerow([gt[0][0], os.path.basename(os.path.dirname(gt[0][0])), average_iou, ap, 'Recall', is_detected, is_label_correct, s_labels[gt_label], pred_label[0], detect_time, recog_time])
 
             f.close()
             print("proc finished.")
