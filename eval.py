@@ -19,6 +19,8 @@ import config as cfg
 from pathlib import Path
 import csv
 import os
+from eval_yolo import evaluate
+
 #
 # FLAGS = tf.app.flags.FLAGS
 #
@@ -282,10 +284,15 @@ def main(argv=None):
             # log
             f = open(cfg.OUTPUT_LOG_PATH, 'w')
             writer = csv.writer(f, lineterminator='\n')
-            writer.writerow(['image path', 'movie_name', 'IoU', 'Average Precision', 'Recall', 'is RoI detected?', 'is label correct?', 'gt label','pred label', 'detect time', 'recog time'])
+            writer.writerow(
+                ['image path', 'class/movie_name', 'IoU', 'Average Precision', 'TP', 'FP', 'FN', 'is RoI detected?',
+                 'gt label', ' highest_conf_label', 'detect time', 'recog time'])
 
-            iou_list = [] # 画像毎のiouのリスト
-            ap_list = []# 画像毎のaverage precisionのリスト
+            total_iou = [] # 画像毎のiouのリスト
+            total_ap = []# 画像毎のaverage precisionのリスト
+            total_tp = 0
+            total_fp = 0
+            total_fn = 0
 
             # iterative run
             for count, gt in enumerate(data):  # gt: [(path_str, label), [frame, center_x, center_y, size_x, size_y]
@@ -294,9 +301,7 @@ def main(argv=None):
                 gt_box = [gt_box[0] - (gt_box[2] / 2), gt_box[1] - (gt_box[3] / 2), gt_box[0] + (gt_box[2] / 2),
                           gt_box[1] + (gt_box[3] / 2)]
                 gt_label = int(gt[0][1])
-                ious = []
-                precisions = []
-
+                gt_anno = {gt_label: gt_box}
 
                 print(count, ":", gt[0][0])
                 img = Image.open(gt[0][0])
@@ -323,6 +328,7 @@ def main(argv=None):
                 if len(filtered_boxes.keys()) != 0: # 何かしら検出された時
                     is_detected = True
 
+                    # get specific object name
                     for cls, bboxs in filtered_boxes.items():
                         if cls == target_label: # ターゲットラベルなら
                             print("target class detected!")
@@ -337,16 +343,10 @@ def main(argv=None):
                                 # cv2.imshow('result', cropped_image)
                                 # cv2.waitKey(0)
 
-                            # print(variables_to_restore)
-
-                            # with tf.Session(config=config) as sess:
-                            # ext_restorer.restore(sess, model_path)
-                            # print("Extractor Model restored from:", model_path)
-
                             input_original = cv2.resize(padding(np_img), (vgg16_image_size, vgg16_image_size))
                             input_original = np.tile(input_original, (len(bounding_boxes), 1, 1, 1)) # croppedと同じ枚数分画像を重ねる
 
-                            cropped_images= []
+                            cropped_images = []
                             for bbox in bounding_boxes:
                                 cropped_images.append(cv2.resize(padding(bbox), (vgg16_image_size, vgg16_image_size)))
 
@@ -358,77 +358,66 @@ def main(argv=None):
                                                                    keep_prob: 1.0,
                                                                    is_training: False})
 
+
                             recog_time = time.time() - t0
                             print("Predictions found in {:.2f}s".format(recog_time))
 
-                            pred_label = [s_labels[i] for i in pred.tolist()] # idからクラス名を得る
+                            # pred_label = [s_labels[i] for i in pred.tolist()] # idからクラス名を得る
 
                             classes = [s_labels[i] for i in range(num_classes_s)]
 
                             filtered_boxes = {}
                             for i, n in enumerate(pred.tolist()):
                                 if n in filtered_boxes.keys():
-                                    filtered_boxes[n].extend([bboxs_[i]])
+                                    filtered_boxes[n].extend([bboxs_[i]]) # filtered box
                                 else:
                                     filtered_boxes[n] = [bboxs_[i]]
 
-                            # calc IoU, mAP
-                            # gt: [(path_str, label), [frame, center_x, center_y, size_x, size_y]
-                            # print(filtered_boxes)
-                            iou = 0.0
-                            for key in filtered_boxes.keys():
-                                for pred_box in filtered_boxes[key]:
-                                    p_box = copy.deepcopy(pred_box[0])
-                                    orig_scale_p_box = convert_to_original_size(p_box, np.array((cfg.IMAGE_SIZE, cfg.IMAGE_SIZE)),
-                                                             np.array(img.size), True)
-                                    conf = pred_box[1]
-                                    # print(gt_label, key)
-                                    if key == gt_label: # 予測したクラスがGTと同じの時
-                                        # print(orig_scale_p_box, gt_box)
-                                        iou = _iou(orig_scale_p_box, gt_box)# :param box1: array of 4 values (top left and bottom right coords): [x0, y0, x1, x2]
-                                        precision = calc_precision(orig_scale_p_box, gt_box)
-                                        is_label_correct = True
-                                    else:
-                                        iou = 0.0
-                                        precision = 0.0
-                                        is_label_correct = False
 
-
-                                    # print("IoU:", iou)
-                                    ious.append(iou)
-                                    print("Precision:", precision)
-                                    precisions.append(precision)
-
-                        else:# ターゲットラベルじゃない時
-                            pass
+                    # evaluation
+                    print("specific obj:", filtered_boxes)
+                    [tp, fp, fn], iou, ap, highest_conf_label = evaluate(filtered_boxes, gt_anno, img,
+                                                                         thresh=0.1)  # 一枚の画像の評価を行う
 
                 else:#何も検出されなかった時
                     is_detected = False
-                    is_label_correct = "None"
-                    pred_label = ["None"]
+                    iou = 0.0
+                    ap = 0.0
+                    tp = 0
+                    fp = 0
+                    fn = len(gt_anno.values())
+                    highest_conf_label = -1
 
+                total_iou.append(iou)
+                total_ap.append(ap)
+                print("IoU:", iou)
+                print("average Precision:", ap)
+                print("mean average IoU:", sum(total_iou) / (len(total_iou) + 1e-05))
+                print("mean Average Precision:", sum(total_ap) / (len(total_ap) + 1e-05))
 
-                average_iou = sum(ious)/(len(ious) + 1e-05) # 画像一枚のiou
-                print("average IoU:", average_iou)
-                iou_list.append(average_iou)
-                print("mean average IoU:", sum(iou_list)/(len(iou_list) + 1e-05))
+                total_tp += tp
+                total_fp += fp
+                total_fn += fn
 
-                ap = sum(precisions) / (len(precisions) + 1e-05)
-                ap_list.append(ap)
-                print("Average Precision:", ap)
-                print("mean Average Precision:", sum(ap_list)/(len(ap_list) + 1e-05))
-
+                # draw pred_bbox
                 draw_boxes(filtered_boxes, img, classes, (cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), True)
-
                 # draw GT
                 draw = ImageDraw.Draw(img)
                 color = (0, 0, 0)
                 draw.rectangle(gt_box, outline=color)
-                draw.text(gt_box[:2], 'GT_'+s_labels[gt_label], fill=color)
+                draw.text(gt_box[:2], 'GT_' + classes[gt_label], fill=color)
 
-                img.save(os.path.join(cfg.OUTPUT_IMAGE_DIR, '{0:04d}_'.format(count)+os.path.basename(gt[0][0])))
-                writer.writerow([gt[0][0], os.path.basename(os.path.dirname(gt[0][0])), average_iou, ap, 'Recall', is_detected, is_label_correct, s_labels[gt_label], pred_label[0], detect_time, recog_time])
+                img.save(os.path.join(cfg.OUTPUT_DIR, '{0:04d}_'.format(count) + os.path.basename(gt[0][0])))
 
+                movie_name = os.path.basename(os.path.dirname(gt[0][0]))
+                movie_parant_dir = os.path.basename(os.path.dirname(os.path.dirname(gt[0][0])))
+                pred_label = classes[highest_conf_label] if highest_conf_label != -1 else "None"
+                writer.writerow([gt[0][0], os.path.join(movie_name, movie_parant_dir), iou, ap, tp, fp, fn, is_detected,
+                                 classes[gt_label], pred_label, detect_time, recog_time])
+
+            print("total tp :", total_tp)
+            print("total fp :", total_fp)
+            print("total fn :", total_fn)
             f.close()
             print("proc finished.")
 

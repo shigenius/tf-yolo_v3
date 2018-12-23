@@ -43,8 +43,9 @@ S_EXTRACTOR_NAME = 'vgg_16'
 # outputs
 #
 
-OUTPUT_LOG_PATH = './outputs/log.csv'
-OUTPUT_IMAGE_DIR = './outputs/'
+OUTPUT_DIR = '/Users/shigetomi/Desktop/outputs/'
+OUTPUT_LOG_name = 'log.csv'
+OUTPUT_LOG_PATH = os.path.join(OUTPUT_DIR, OUTPUT_LOG_name)
 
 #
 # for debug
